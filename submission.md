@@ -64,6 +64,8 @@ else:
     user.listening_streak = 1
 ```
 
+- ran the unit test again after to ensure existing test didn't break.
+
 ----
 
 #### Bug 2: Friends Listening Now shows people from yesterday
@@ -84,6 +86,8 @@ friend_ids = [f.id for f in user.friends]
 # Add a filter to the friend_ids list so that only friends with non null and >= cutoff time are included in the list.
 friend_ids = [f.id for f in user.friends if f.last_listened_at and f.last_listened_at.replace(tzinfo=timezone.utc) >= cutoff]
 ```
+
+- ran the unit test again after to ensure existing test didn't break.
 
 ---
 
@@ -106,3 +110,5 @@ return [song.to_dict() for song in songs[:-1]]
 # removed the slice [:-1] so we will now return all songs
 return [song.to_dict() for song in songs]
 ```
+
+- ran the unit test this time all test pass where previous attempts there were still 2 failing test related to the playlist.
