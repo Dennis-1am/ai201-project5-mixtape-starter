@@ -96,3 +96,13 @@ friend_ids = [f.id for f in user.friends if f.last_listened_at and f.last_listen
 
 **How the bug was caught**
 1. Unit Test.
+
+**Root Cause Analysis**
+```
+# removed the last song
+return [song.to_dict() for song in songs[:-1]]
+```
+```
+# removed the slice [:-1] so we will now return all songs
+return [song.to_dict() for song in songs]
+```
