@@ -52,7 +52,8 @@ I noticed that the all most endpoints don't just use the default `/` the only th
 3. Observe that the user's streak was reset back to 1
 
 **How the bug was caught**
-- Unit Test.
+
+Unit test failed. I investigated by tracing through `services/streak_service.py` to understand the streak logic. In the `update_listening_streak()` function (lines 70-76), I found the problem: the condition `today.weekday() != 6` was explicitly preventing streak increments on Sundays. Any listen on a Sunday would fall through to the `else` block and reset the streak to 1, even if the user had listened on Saturday. The fix was straightforward: remove the weekday check so the streak increments regardless of the day of the week.
 
 **Root Cause Analysis**
 The problem was that the logic wrongly reset user streaks when they record a streak on sunday. i.e. record on a saturday so that the days_since_last is 1 and record on sunday days_since_last is = to 1 but not the weekday is 6 so it skips and resets to 1.
@@ -80,7 +81,8 @@ else:
 2. Observe that `last_listened_at` is both null and includes yesterday. 
 
 **How the bug was caught**
-- Reported by user / support.
+
+User reported that the Friends Listening Now endpoint was returning stale data from yesterday. I started by examining `services/feed_service.py` to understand the filtering logic in `get_friends_listening_now()` (lines 16-62). I noticed the function was retrieving a list of friend IDs but had no filter for `last_listened_at` — it only checked if listening events existed within the past 24 hours. I then checked `models.py` to confirm that the User model had a `last_listened_at` field (line 46). The issue was clear: the field existed but wasn't being used. I added a filter on line 33 to only include friends where `last_listened_at` was not null and fell within the 24-hour recency window, ensuring stale friends wouldn't appear in the feed.
 
 **Root Cause Analysis**
 The problem was that the logic didn't include any filter for last_listened_at inside of the feed_service.get_friends_listening_now
@@ -105,7 +107,8 @@ friend_ids = [f.id for f in user.friends if f.last_listened_at and f.last_listen
 3. Observe that the # of songs returns is X-1 instead of X. 
 
 **How the bug was caught**
-1. Unit Test.
+
+Unit tests revealed that playlists were returning fewer songs than expected. I traced through `services/playlist_service.py` to find the `get_songs()` function. At the return statement (line ~118), I found the problematic slice: `return [song.to_dict() for song in songs[:-1]]`. The `[:-1]` slice was explicitly removing the last song from every playlist. This was clearly unintentional. I removed the slice so all songs are returned, and verified the fix by re-running the tests.
 
 **Root Cause Analysis**
 The problem was in playlist_service at the return statement at the end.
@@ -119,3 +122,5 @@ return [song.to_dict() for song in songs]
 ```
 
 - ran the unit test this time all test pass where previous attempts there were still 2 failing test related to the playlist.
+
+![screen shot of git log](/Screenshot%202026-07-05%20at%2017.36.02.png)
