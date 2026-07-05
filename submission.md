@@ -1,3 +1,7 @@
+## AI USAGE
+
+I asked Claude to explain some suspicious-looking functions. For example, I asked it to confirm my suspicion that the `feed_service` was not properly filtering for active listening users based on their `last_listened_at` timestamp. Claude was helpful, confirmed my suspicion, and proposed a solution. I then reviewed its suggestion and implemented it. For the most part claude was able to help me identify suspicious looking code and identify the root cause which I then reviewed and pushed back until I got to a solution or root cause that I believe to be true.
+
 ## Code Base Map
 
 ### `app.py`
@@ -51,6 +55,7 @@ I noticed that the all most endpoints don't just use the default `/` the only th
 - Unit Test.
 
 **Root Cause Analysis**
+The problem was that the logic wrongly reset user streaks when they record a streak on sunday. i.e. record on a saturday so that the days_since_last is 1 and record on sunday days_since_last is = to 1 but not the weekday is 6 so it skips and resets to 1.
 ```
 elif days_since_last == 1 and today.weekday() != 6: # if the day is sunday then fall through to the else and reset it the user streak to 1
     user.listening_streak += 1
@@ -78,6 +83,7 @@ else:
 - Reported by user / support.
 
 **Root Cause Analysis**
+The problem was that the logic didn't include any filter for last_listened_at inside of the feed_service.get_friends_listening_now
 ```
 # The code didn't account for user activity instead just relied on listening event. Which is not as accurate as last_listened_at.
 friend_ids = [f.id for f in user.friends]
@@ -102,6 +108,7 @@ friend_ids = [f.id for f in user.friends if f.last_listened_at and f.last_listen
 1. Unit Test.
 
 **Root Cause Analysis**
+The problem was in playlist_service at the return statement at the end.
 ```
 # removed the last song
 return [song.to_dict() for song in songs[:-1]]
