@@ -72,11 +72,18 @@ else:
 1. Send a this curl request `curl http://127.0.0.1:5000/feed/988b8515-a0fd-4435-b121-e4c87c0b2800/listening-now` for test user `nova` *note* `988b8515-a0fd-4435-b121-e4c87c0b2800` is the test user_id.
 2. Observe that `last_listened_at` is both null and includes yesterday. 
 
-**Hypothesis**
-- The app is not updating both `listened_at` and `last_listen_at`. In addition, to not filtering out users who have `last_listened_at` as null and is not the current date.
-
 **How the bug was caught**
 - Reported by user / support.
+
+**Root Cause Analysis**
+```
+# The code didn't account for user activity instead just relied on listening event. Which is not as accurate as last_listened_at.
+friend_ids = [f.id for f in user.friends]
+```
+```
+# Add a filter to the friend_ids list so that only friends with non null and >= cutoff time are included in the list.
+friend_ids = [f.id for f in user.friends if f.last_listened_at and f.last_listened_at.replace(tzinfo=timezone.utc) >= cutoff]
+```
 
 ---
 
