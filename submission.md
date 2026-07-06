@@ -1,48 +1,81 @@
 ## AI USAGE
 
-I asked Claude to explain some suspicious-looking functions. For example, I asked it to confirm my suspicion that the `feed_service` was not properly filtering for active listening users based on their `last_listened_at` timestamp. Claude was helpful, confirmed my suspicion, and proposed a solution. I then reviewed its suggestion and implemented it. For the most part claude was able to help me identify suspicious looking code and identify the root cause which I then reviewed and pushed back until I got to a solution or root cause that I believe to be true.
+1. I asked Claude to explain some suspicious-looking functions. For example, I asked it to confirm my suspicion that the `feed_service` was not properly filtering for active listening users based on their `last_listened_at` timestamp. Claude was helpful, confirmed my suspicion, and proposed a solution. I then reviewed its suggestion and implemented it. For the most part claude was able to help me identify suspicious looking code and identify the root cause which I then reviewed and pushed back until I got to a solution or root cause that I believe to be true.
+
+2. I also asked claude to help me identify the data path and help me build the correct test curl commands to reproduce the bugs. One specific example was when claude helped me build the query to fix the bug where users would see wrong listening now friend results. I was able to identify from the response that null and expired last_listening_at fields were the main source of the problem.
 
 ## Code Base Map
 
-### `app.py`
+### Project Structure
 
-The app.py is where the app lives and all the routes / configurations are initially registered upon start up. The app is also running in debug mode.
+```
+mixtape/
+├── app.py                 # Flask application initialization and route registration
+├── models.py              # SQLAlchemy ORM models and association tables
+├── services/              # Business logic for streaks, feeds, playlists, and search
+│   ├── streak_service.py
+│   ├── feed_service.py
+│   ├── playlist_service.py
+│   └── search_service.py
+├── routes/                # API endpoints organized by resource
+│   ├── playlists.py
+│   ├── songs.py
+│   ├── users.py
+│   ├── ratings.py
+│   ├── notifications.py
+│   └── search.py
+├── instance/              # Application instance (database)
+└── tests/                 # Unit tests
+```
 
+### Core Components
 
---- 
-### `model.py`
+#### `app.py`
+Flask application entry point. Initializes the database, registers blueprints for all routes, and enables debug mode. All route configurations are registered at startup.
 
-The `model.py` file serves as the core schema definition, managing the relationships between the 6 primary models through 3 association tables.
+#### `models.py`
+Defines 7 SQLAlchemy ORM models with 3 association tables managing many-to-many relationships.
 
-#### Association Tables
+**Association Tables:**
 
-| Table | Description |
+| Table | Purpose |
 | --- | --- |
-| **`friendships`** | A many-to-many join table enabling the self-referential "friends" feature for users. |
-| **`song_tags`** | Maps multiple tags to a single song (and vice versa). |
-| **`playlist_entries`** | An association object linking `Playlist` to `Song` with metadata (`position`, `added_by`, `add_at`). |
+| **`friendships`** | Self-referential many-to-many linking users as friends |
+| **`song_tags`** | Maps songs to tags for categorization |
+| **`playlist_entries`** | Links playlists to songs with ordering metadata (`position`, `added_by`, `added_at`) |
 
-#### Data Models
+**Data Models:**
 
-| Model | Relationships | Description |
-| --- | --- | --- |
-| **`User`** | Relationships with all models (except `Tag`). Self-referential friendship relationship configured with `lazy='dynamic'`. | The individual users of the mixtape app. |
-| **`Song`** | Relationships with `Rating` and `Tag`. Uses `lazy='subquery'` for tags to prevent N+1 performance issues. | The individual songs available in the app. |
-| **`Playlist`** | Associated with `Song` via the `playlist_entries` bridge table. | Playlists with support for custom ordering via `position`. |
-| **`ListeningEvent`** | Standalone model. | Records user listening history (e.g., *User X listened to Song Y at Time Z*). |
-| **`Tag`** | Standalone model. | Categorization tags applied to songs. |
-| **`Rating`** | Standalone model. | User ratings can only be from 1-5 inclusive. Enforces a unique constraint on `(user_id, song_id)` to ensure one rating per song. |
-| **`Notification`** | Standalone model. | User alerts with a body and a `read` state (defaulting to `False`). |
+| Model | Key Fields | Relationships | Purpose |
+| --- | --- | --- | --- |
+| **`User`** | `id`, `username`, `email`, `listening_streak`, `last_listened_at`, `created_at` | Friends (self-ref, `lazy='dynamic'`), songs, ratings, events, notifications, playlists | Individual app users with streak tracking |
+| **`Song`** | `id`, `title`, `artist`, `album`, `genre`, `shared_by`, `shared_at` | Ratings, listening events, tags (`lazy='subquery'`) | Songs shared in the app |
+| **`Playlist`** | `id`, `name`, `created_by`, `created_at`, `is_collaborative` | Songs via `playlist_entries`, creator (User) | User-created collections with custom ordering |
+| **`ListeningEvent`** | `id`, `user_id`, `song_id`, `listened_at` | User, Song | Tracks when users listen to songs |
+| **`Rating`** | `id`, `user_id`, `song_id`, `score`, `rated_at` | User, Song | 1-5 score per user/song with uniqueness constraint |
+| **`Tag`** | `id`, `name` | Songs (many-to-many) | Categorization labels for songs |
+| **`Notification`** | `id`, `user_id`, `notification_type`, `body`, `created_at`, `read` | User | User alerts with read state |
 
-#### Data Flow
+#### `services/` Directory
+Contains business logic isolated from routes:
+- **`streak_service.py`**: Manages listening streaks and listening event recording
+- **`feed_service.py`**: Handles "Friends Listening Now" (recent friends) and activity feeds
+- **`playlist_service.py`**: Playlist creation, song addition/removal, and retrieval
+- **`search_service.py`**: Song search by title and artist
 
-A user creates a playlist -> `POST /playlists/` in `routes/playlists.py` which calls `create.create_playlist()`. That functions creates a playlists record which has the playlist creator, name, and whether other people can add to the playlist or not.
+#### `routes/` Directory
+API endpoints organized by resource:
+- Users, songs, ratings, playlists, notifications, and search endpoints
+- Each route typically calls a corresponding service function
+- Most endpoints use resource-specific paths (e.g., `/playlists/`, `/songs/`) rather than a root `/` pattern
 
-#### Pattern
+### Data Flow Example
 
-I noticed that the all most endpoints don't just use the default `/` the only that does is `/playlists/`. Which is a interesting decision.
+User creates a playlist: `POST /playlists/` → `routes/playlists.py` → `services/create.create_playlist()` → Creates `Playlist` record with creator, name, and collaboration settings.
 
-#### Bug Report / Root Cause Analysis
+---
+
+## Bug Report / Root Cause Analysis
 
 #### Bug 1: My listening streak keeps resetting
 
@@ -70,7 +103,12 @@ else:
     user.listening_streak = 1
 ```
 
-- ran the unit test again after to ensure existing test didn't break.
+**Side-Effect Check**
+
+Verified that removing the Sunday check doesn't break other streak logic:
+- Tested that streaks properly reset when `days_since_last > 1` (skipping 2+ days): Confirmed the `else` branch still resets to 1
+- Tested that consecutive days still increment: Confirmed `days_since_last == 1` logic is unaffected
+- Examined `record_listening_event()` in streak_service.py to ensure it still calls `update_listening_streak()` correctly
 
 ----
 
@@ -95,7 +133,13 @@ friend_ids = [f.id for f in user.friends]
 friend_ids = [f.id for f in user.friends if f.last_listened_at and f.last_listened_at.replace(tzinfo=timezone.utc) >= cutoff]
 ```
 
-- ran the unit test again after to ensure existing test didn't break.
+**Side-Effect Check**
+
+Verified that the new filter doesn't break other feed functionality:
+- Checked `get_activity_feed()` in feed_service.py (lines 65-105) to ensure it's unaffected — it doesn't use the `last_listened_at` filter, so it still returns all friend listening events regardless of recency
+- Traced through the `User.friends` relationship to confirm the filter correctly handles null `last_listened_at` values without crashing
+- Verified that timezone-naive datetimes in the database are properly converted with `.replace(tzinfo=timezone.utc)` before comparison with the UTC cutoff
+- Examined the original listening event filter (`ListeningEvent.listened_at >= cutoff`) to ensure it still works alongside the new user-level filter
 
 ---
 
@@ -121,6 +165,12 @@ return [song.to_dict() for song in songs[:-1]]
 return [song.to_dict() for song in songs]
 ```
 
-- ran the unit test this time all test pass where previous attempts there were still 2 failing test related to the playlist.
+**Side-Effect Check**
+
+Verified that removing the slice doesn't break edge cases or related functionality:
+- Checked behavior with single-song playlists: A playlist with 1 song now correctly returns that 1 song (previously would have returned 0)
+- Verified empty playlists still work: An empty playlist correctly returns an empty list (the slice `songs[:-1]` on an empty list returns an empty list, as does `songs`)
+- Confirmed that playlist ordering via the `position` field is maintained: No changes to the sort order, only removing the truncation
+- Ran the unit test and confirmed all 2 previously failing tests related to playlists now pass.
 
 ![screen shot of git log](/Screenshot%202026-07-05%20at%2017.36.02.png)
